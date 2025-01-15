@@ -1,0 +1,13 @@
+facenet_pytorch==2.6.0
+Flask==3.1.0
+Flask_Cors==5.0.0
+imutils==0.5.4
+numpy==2.2.1
+opencv_contrib_python==4.10.0.84
+opencv_python==4.9.0.80
+opencv_python_headless==4.9.0.80
+Pillow==11.1.0
+torch==2.5.1+cu118
+torchvision==0.20.1+cu118
+ultralytics==8.2.98
+Werkzeug==3.1.3
