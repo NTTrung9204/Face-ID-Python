@@ -1,0 +1,53 @@
+video{
+    display: none;
+}
+
+video, canvas, img {
+    border: 2px solid #333;
+    margin: 10px;
+    border-radius: 8px;
+}
+
+button {
+    padding: 10px 20px;
+    font-size: 16px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+.camera{
+    display: flex;
+    justify-content: space-evenly;
+}
+
+input{
+    all: unset;
+    padding: 10px;
+    width: 100%;
+    border-radius: 5px;
+    border: 2px solid #333;
+    margin-bottom: 30px;
+}
+
+#saving_container{
+    text-align: center;
+}
+
+span{
+    font-weight: bold;
+    padding: 5px;
+}
+
+#results{
+    display: flex;
+    flex-direction: column;
+    justify-items: center;
+    align-items: center;
+}
