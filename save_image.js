@@ -98,6 +98,7 @@ saveImage.addEventListener("click", async () => {
             console.error("Lỗi xử lý ảnh:", await response.text());
         }
     } catch (err) {
-        console.error("Lỗi kết nối đến server:", err);
+        const messageElement = createMessage("error", "Lỗi kết nối đến server");
+        results.appendChild(messageElement);
     }
 });
