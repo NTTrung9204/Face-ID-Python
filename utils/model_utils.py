@@ -10,6 +10,9 @@ from ultralytics import YOLO
 def cosine_similarity(A: np.ndarray, B: np.ndarray) -> float:
     return 1 - np.dot(A, B) / (np.linalg.norm(A) * np.linalg.norm(B))
 
+def euclid_distance(A: np.ndarray, B: np.ndarray) -> float:
+    return np.linalg.norm(A - B)
+
 def preprocess_face(face_image: np.ndarray) -> torch.Tensor:
     transform = transforms.Compose(
         [
@@ -81,7 +84,6 @@ def nearest_face(
         for embedding in embeddings:
             embedding: np.ndarray
 
-            # distance: float = np.linalg.norm(face_embedding - embedding)
             distance: float = cosine_similarity(face_embedding, embedding)
 
             distances[label].append(distance)
