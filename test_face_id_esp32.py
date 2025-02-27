@@ -23,13 +23,15 @@ while True:
                 print("Không thể giải mã hình ảnh từ ESP32-CAM.")
                 continue
 
-            frame = imutils.resize(frame, width=800)
-            print(frame.shape)
+            frame = imutils.resize(frame, width=600)
 
             identified_faces = my_model.query(frame)
 
             for label, face, distance in identified_faces:
                 x1, y1, x2, y2 = map(int, face)
+
+                if distance > 0.25:
+                    label = "Unknow"
 
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)
                 cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
