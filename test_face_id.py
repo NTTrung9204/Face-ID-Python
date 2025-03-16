@@ -5,8 +5,9 @@ import imutils
 from face_id_model import FaceIDModel
 
 my_model = FaceIDModel("model/detection_model.pt", "identity")
-
-vs = VideoStream(src=0).start()
+esp32_url = "http://192.168.71.235:81/stream"
+# vs = VideoStream(src=0).start()
+vs = VideoStream(src=esp32_url).start()
 time.sleep(2.0)
 
 while True:
@@ -16,8 +17,6 @@ while True:
         break
     
     frame = imutils.resize(frame, width=800)
-
-    print(frame.shape)
 
     identified_faces = my_model.query(frame)
 
@@ -32,7 +31,6 @@ while True:
         cv2.putText(frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
         cv2.putText(frame, f"Distance: {distance:.2f}", (x1, y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (255, 0, 0), 2)
 
-    # Hiển thị khung hình
     cv2.imshow("Frame", frame)
 
     key = cv2.waitKey(1) & 0xFF
