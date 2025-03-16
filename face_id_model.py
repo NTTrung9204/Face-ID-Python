@@ -3,7 +3,7 @@ from ultralytics import YOLO
 from facenet_pytorch import InceptionResnetV1
 import numpy as np
 import torch.nn as nn
-from dataset.facenet import create_model
+from real_fake_dataset.facenet import create_model
 import torch
 
 class FaceIDModel:
