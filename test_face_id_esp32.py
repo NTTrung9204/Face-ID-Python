@@ -5,7 +5,7 @@ import numpy as np
 import imutils
 from face_id_model import FaceIDModel
 
-ESP32_IP = "http://192.168.1.5"
+ESP32_IP = "http://192.168.248.185"
 CAPTURE_URL = f"{ESP32_IP}/capture"
 
 my_model = FaceIDModel("model/detection_model.pt", "identity")
