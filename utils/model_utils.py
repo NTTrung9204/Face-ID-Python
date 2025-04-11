@@ -99,29 +99,74 @@ def nearest_face(
             min_distance: float = min(label_distances)
             min_label: str = label
 
+    print(distances)
+
     return min_label, min_distance
 
+def predict_real_fake(
+    face_image: np.ndarray, classifier_model: torch.nn.Module, device: torch.device
+):
+    # Convert BGR to RGB for PIL (if face_image is in BGR)
+    face_image_rgb = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
+    
+    # Now create PIL image from RGB array
+    image = Image.fromarray(face_image_rgb)
 
+    transform = transforms.Compose(
+        [
+            transforms.Resize(400),  # Resize to a larger size first (zoom in)
+            transforms.CenterCrop(299),  # Then crop the center to 299x299
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]
+    )
+
+    input_tensor = transform(image).unsqueeze(0)
+    input_tensor = input_tensor.to(device)
+
+    classifier_model.eval()
+    classifier_model.to(device)
+    with torch.no_grad():
+        outputs = classifier_model(input_tensor)
+        probabilities = torch.softmax(outputs, dim=1)
+        predicted_class = torch.argmax(probabilities, dim=1).item()
+
+    return predicted_class, probabilities.cpu().numpy()
 def identify_faces(
     faces: np.ndarray,
     identity_embedding: dict[str, list[np.ndarray]],
     image: np.ndarray,
     extractor_model: nn.Module,
-) -> list[tuple[str, np.ndarray, float]]:
-    identified_faces: list[tuple[str, np.ndarray, float]] = []
+    real_fake_model: nn.Module,
+    device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+) -> list[tuple[str, np.ndarray, float, int, np.ndarray]]:
+    identified_faces = []
 
     for face in faces:
-        face: np.ndarray
-
         x1, y1, x2, y2 = face
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
-        face_image: np.ndarray = image[y1:y2, x1:x2]
-
-        face_embedding: np.ndarray = extract_face_embedding(face_image, extractor_model)
-
+        face_image = image[y1:y2, x1:x2]
+        
+        # Extract embedding for identification
+        face_embedding = extract_face_embedding(face_image, extractor_model)
+        
+        # Find nearest face match
         label, distance = nearest_face(face_embedding, identity_embedding)
+        
+        # Convert RGB to BGR for real/fake detection if needed
+        face_image_bgr = cv2.cvtColor(face_image, cv2.COLOR_RGB2BGR)
+        
+        # Check if the face is real or fake
+        real_fake_class, real_fake_probs = predict_real_fake(face_image_bgr, real_fake_model, device)
 
-        identified_faces.append((label, face, distance))
+        if real_fake_class == 1:
+            label = "Fake"
+        
+        # Return tuple with additional information about real/fake classification
+        identified_faces.append((label, face, distance, real_fake_class, real_fake_probs[0]))
 
     return identified_faces
+
+def numpy_array_to_list(identity_embedding):
+    return {key: [arr.tolist() for arr in value] for key, value in identity_embedding.items()}
