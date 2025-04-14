@@ -1,7 +1,7 @@
 import base64
 import io
 import cv2
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, request, send_file, send_from_directory
 from flask_cors import CORS, cross_origin
 from face_id_model import FaceIDModel
 from utils.model_utils import extract_face_embedding
@@ -9,6 +9,11 @@ from utils.server_utils import ServerUtils
 from PIL import Image
 import numpy as np
 import requests
+import mysql.connector
+from datetime import datetime
+import websocket
+import json
+import threading
 
 app = Flask(__name__)
 # CORS(app, resources={r"/api/*": {"origins": "http://localhost:5173"}})
@@ -25,6 +30,79 @@ my_model = FaceIDModel("model/detection_model.pt", "identity")
 
 results = ""
 
+# Địa chỉ WebSocket của ESP32
+ESP32_WS_URL = "ws://172.16.3.30:81"  # Thay đổi IP này thành IP của ESP của bạn
+
+@app.route('/student_images/<filename>')
+def student_images(filename):
+    return send_from_directory("student_images", filename)
+
+# Hàm gửi thông báo đến ESP32 qua WebSocket
+def send_to_esp32(message_data):
+    try:
+        def on_open(ws):
+            print("Đã kết nối tới ESP32 WebSocket")
+            ws.send(json.dumps(message_data))
+            print(f"Đã gửi: {message_data}")
+            # Đóng kết nối sau khi gửi
+            ws.close()
+
+        def on_close(ws, close_status_code, close_msg):
+            print("Đã ngắt kết nối WebSocket")
+
+        def on_error(ws, error):
+            print(f"Lỗi kết nối WebSocket: {error}")
+
+        # Tạo và chạy WebSocket client trong thread riêng
+        ws = websocket.WebSocketApp(ESP32_WS_URL,
+                                    on_open=on_open,
+                                    on_close=on_close,
+                                    on_error=on_error)
+        
+        # Chạy trong thread riêng để không block server
+        wst = threading.Thread(target=ws.run_forever)
+        wst.daemon = True
+        wst.start()
+        return True
+    except Exception as e:
+        print(f"Lỗi khi gửi thông báo đến ESP32: {e}")
+        return False
+
+# Thêm route API để kiểm tra kết nối ESP32
+@app.route("/api/esp32/status", methods=["GET"])
+def esp32_status():
+    try:
+        # Gửi ping đến ESP32
+        test_msg = {"type": "ping", "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+        if send_to_esp32(test_msg):
+            return {"message": "Ping sent to ESP32", "status": "success"}
+        else:
+            return {"message": "Failed to send ping to ESP32", "status": "error"}
+    except Exception as e:
+        return {"message": f"Error checking ESP32 status: {e}", "status": "error"}
+
+# Thêm route để gửi thông báo đến ESP32 khi nhận diện thành công
+@app.route("/api/esp32/notify", methods=["POST"])
+def notify_esp32():
+    data = request.get_json()
+    message = data.get('message', 'Attendance recorded')
+    student_id = data.get('student_id')
+    lesson_id = data.get('lesson_id')
+    name = data.get('name', '')
+    
+    send_data = {
+        "student_id": student_id,
+        "lesson_id": lesson_id,
+        "name": name,
+        "message": message
+    }
+    
+    success = send_to_esp32(send_data)
+    
+    if success:
+        return {"message": "Notification sent to ESP32", "status": "success"}
+    else:
+        return {"message": "Failed to send notification to ESP32", "status": "error"}
 
 @app.route("/save_image", methods=["POST"])
 def save_image():
@@ -60,15 +138,25 @@ def identity_student():
     img = Image.open(image)
     img_array = np.array(img)
 
+    # save image to file
+    current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f"student_images/image_{current_time}.jpg"
+    img.save(filename)
+    print(f"Image saved as {filename}")
+
     # convert to BGR format
     img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
 
     print("Image shape:", img_array.shape)
 
     student_vectors = ServerUtils.fetch_student_vectors()
+    print("Student vectors:", student_vectors)
     label, distance = ServerUtils.identify_student(
         student_vectors, img_array, my_model.extractor_model
     )
+
+    print("Label:", label)
+    print("Distance:", distance)
 
     if distance > 0.25:
         return {"label": "unknown", "distance": distance, "status": "success"}
@@ -89,50 +177,43 @@ def identity_student():
     global results
     results = label
 
-    # post data to localhost:8080/api/attendance/check
+    print("Student ID:", studentId)
+    print("Label:", label)
 
+    # Get current lesson for this student
+    lessonId = ServerUtils.get_current_lesson_for_student(studentId)
+    
+    if not lessonId:
+        return {"message": "Student not found in any active lessons", "status": "error"}
+    
+    # post data to localhost:8080/api/attendance/check
     response = requests.post(
         "http://localhost:8080/api/attendance/check",
-        json={"lessonId": 2, "studentId": studentId},
+        json={"lessonId": lessonId, "studentId": studentId, "image_path": filename},
     )
-
+    
     print("Status Code:", response.status_code)
     print("Response:", response.json())
 
-    return {"label": label, "distance": distance, "status": "success"}
+    print("Lesson ID:", lessonId)
+    print("Student ID:", studentId)
+    
+    # Thông báo cho ESP32
+    notification = {
+        "student_id": studentId,
+        "lesson_id": lessonId,
+        "name": label,
+        "message": f"Attendance recorded for student {label}"
+    }
+    send_to_esp32(notification)
+
+    return {"label": label, "distance": distance, "lessonId": lessonId, "status": "success"}
 
 
 @app.route("/api/result", methods=["GET"])
 def get_result():
     global results
     return {"results": results, "status": "success"}
-
-
-# @app.route("/api/face/register", methods=["POST"])
-# @cross_origin(supports_credentials=True)
-# def register_face():
-#     images = request.files.get("images")
-#     username = request.form.get("username")
-
-#     print("Username:", username)
-#     print("Images received:", images)
-    
-#     if not username:
-#         return {"message": "Username is None!", "status": "error"}
-    
-#     if not images:
-#         return {"message": "No images received!", "status": "error"}
-    
-#     print(username)
-#     print("Length of images:", len(images))
-
-#     for image in images:
-#         image = Image.open(image)
-#         image_array = np.array(image)
-
-#         print(extract_face_embedding(image_array, my_model.extractor_model))
-
-#     return {"message": "Register face successfully!", "status": "success"}
 
 @app.route('/api/face/register', methods=['POST', 'OPTIONS'])
 @cross_origin(supports_credentials=True)
@@ -181,4 +262,8 @@ def register_face():
 
 
 if __name__ == "__main__":
+    # Cài đặt websocket-client nếu chưa cài: pip install websocket-client
+    print("Starting server on 0.0.0.0:5000...")
+    print(f"ESP32 WebSocket URL: {ESP32_WS_URL}")
+    print("Server ready - waiting for connections")
     app.run(host="0.0.0.0", port=5000, debug=True)
