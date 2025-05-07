@@ -5,7 +5,8 @@ import imutils
 from face_id_model import FaceIDModel
 
 my_model = FaceIDModel("model/detection_model.pt", "identity")
-esp32_url = "http://192.168.71.235:81/stream"
+# esp32_url = "http://192.168.55.235:81/stream"
+esp32_url = "http://192.168.1.6:81/stream"
 # vs = VideoStream(src=0).start()
 vs = VideoStream(src=esp32_url).start()
 time.sleep(2.0)
@@ -16,15 +17,16 @@ while True:
         print("Không thể đọc khung hình từ video stream.")
         break
     
+    # frame is already in BGR format
     frame = imutils.resize(frame, width=800)
 
     identified_faces = my_model.query(frame)
 
-    for label, face, distance in identified_faces:
+    for label, face, distance, _, _ in identified_faces:
         x1, y1, x2, y2 = face
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
 
-        if distance > 0.25:
+        if distance > 0.25 and label != "Fake":
             label = "Unknow"
 
         cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 0, 0), 2)

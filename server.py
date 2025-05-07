@@ -19,7 +19,7 @@ app = Flask(__name__)
 # CORS(app, resources={r"/api/*": {"origins": "http://localhost:5173"}})
 # CORS(app)
 CORS(app, resources={r"/api/*": {
-    "origins": "http://localhost:5173",  # Thay đổi theo origin của React app
+    "origins": "http://192.168.180.164:5173",  # Thay đổi theo origin của React app
     "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     "allow_headers": ["Content-Type", "Authorization"],
     "supports_credentials": True
@@ -31,7 +31,7 @@ my_model = FaceIDModel("model/detection_model.pt", "identity")
 results = ""
 
 # Địa chỉ WebSocket của ESP32
-ESP32_WS_URL = "ws://172.16.3.30:81"  # Thay đổi IP này thành IP của ESP của bạn
+ESP32_WS_URL = "ws://192.168.180.207:81"  # Thay đổi IP này thành IP của ESP của bạn
 
 @app.route('/student_images/<filename>')
 def student_images(filename):
@@ -127,87 +127,104 @@ def save_image():
 
 @app.route("/api/identity_student", methods=["POST"])
 def identity_student():
-    image = request.files.get("image")
+    try:
+        image = request.files.get("image")
 
-    if not image:
-        return {"message": "No image received!", "status": "error"}
+        if not image:
+            return {"message": "No image received!", "status": "error"}
 
-    print("Image received:", image.filename)
+        print("Image received:", image.filename)
 
-    # Convert image to numpy array
-    img = Image.open(image)
-    img_array = np.array(img)
+        # Convert image to numpy array
+        img = Image.open(image)
+        img_array = np.array(img)
 
-    # save image to file
-    current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = f"student_images/image_{current_time}.jpg"
-    img.save(filename)
-    print(f"Image saved as {filename}")
 
-    # convert to BGR format
-    img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+        # convert to BGR format
+        img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
 
-    print("Image shape:", img_array.shape)
+        print("Image shape:", img_array.shape)
 
-    student_vectors = ServerUtils.fetch_student_vectors()
-    print("Student vectors:", student_vectors)
-    label, distance = ServerUtils.identify_student(
-        student_vectors, img_array, my_model.extractor_model
-    )
+        student_vectors = ServerUtils.fetch_student_vectors()
+        # print("Student vectors:", student_vectors)
+        label, distance = ServerUtils.identify_student(
+            student_vectors, img_array, my_model.extractor_model
+        )
 
-    print("Label:", label)
-    print("Distance:", distance)
+        print("Label:", label)
+        print("Distance:", distance)
 
-    if distance > 0.25:
-        return {"label": "unknown", "distance": distance, "status": "success"}
+        if distance > 0.3:
+            return {"label": "unknown", "distance": distance, "status": "success"}
+        
+        # save image to file
+        current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        image_name = f"image_{current_time}.jpg"
+        filename = f"student_images/image_{current_time}.jpg"
+        img.save(filename)
+        print(f"Image saved as {filename}")
 
-    studentId = label
+        studentId = label
 
-    label = str(label)
+        student = ServerUtils.get_student_by_id(student_id=studentId)
+        if not student:
+            print("Student not found")
+            return {"message": "Student not found", "status": "error"}
+        
+        label = student["name"]
 
-    if label == "1":
-        label = "trung"
-    elif label == "2":
-        label = "tai"
-    elif label == "3":
-        label = "hoang"
-    elif label == "4":
-        label = "phong"
+        # label = str(label)
 
-    global results
-    results = label
+        # if label == "1":
+        #     label = "trung"
+        # elif label == "2":
+        #     label = "tai"
+        # elif label == "3":
+        #     label = "hoang"
+        # elif label == "4":
+        #     label = "phong"
 
-    print("Student ID:", studentId)
-    print("Label:", label)
+        # global results
+        # results = label
 
-    # Get current lesson for this student
-    lessonId = ServerUtils.get_current_lesson_for_student(studentId)
-    
-    if not lessonId:
-        return {"message": "Student not found in any active lessons", "status": "error"}
-    
-    # post data to localhost:8080/api/attendance/check
-    response = requests.post(
-        "http://localhost:8080/api/attendance/check",
-        json={"lessonId": lessonId, "studentId": studentId, "image_path": filename},
-    )
-    
-    print("Status Code:", response.status_code)
-    print("Response:", response.json())
+        print("Student ID:", studentId)
+        print("Label:", label)
 
-    print("Lesson ID:", lessonId)
-    print("Student ID:", studentId)
-    
-    # Thông báo cho ESP32
-    notification = {
-        "student_id": studentId,
-        "lesson_id": lessonId,
-        "name": label,
-        "message": f"Attendance recorded for student {label}"
-    }
-    send_to_esp32(notification)
+        # Get current lesson for this student
+        lessonId = ServerUtils.get_current_lesson_for_student(studentId)
+        
+        if not lessonId:
+            return {"message": "Student not found in any active lessons", "status": "error"}
+        
+        # post data to localhost:8080/api/attendance/check
+        try:
+            response = requests.post(
+                "http://192.168.180.164:8080/api/attendance/check",
+                json={"lessonId": lessonId, "studentId": studentId, "image": image_name},
+            )
+        except requests.exceptions.RequestException as e:
+            print("Error sending request to attendance API:", e)
+            return {"message": "Error sending request to attendance API", "status": "error"}
+        
+        print("Status Code:", response.status_code)
+        print("Response:", response.json())
 
-    return {"label": label, "distance": distance, "lessonId": lessonId, "status": "success"}
+        print("Lesson ID:", lessonId)
+        print("Student ID:", studentId)
+        
+        # Thông báo cho ESP32
+        notification = {
+            "student_id": studentId,
+            "lesson_id": lessonId,
+            "name": label,
+            "message": f"Attendance recorded for student {label}"
+        }
+        send_to_esp32(notification)
+
+        return {"label": label, "distance": distance, "lessonId": lessonId, "status": "success"}
+    except Exception as e:
+        print("Error processing image:", e)
+        return {"message": "Internal Server Error", "status": "error"}
 
 
 @app.route("/api/result", methods=["GET"])
@@ -247,7 +264,7 @@ def register_face():
         array_vector.append(extract_face_embedding(image_array, my_model.extractor_model).tolist())
 
     response = requests.post(
-        "http://localhost:8080/api/student-vectors",
+        "http://192.168.180.164:8080/api/student-vectors",
         json={
             "username": username,
             "featureVector": array_vector,

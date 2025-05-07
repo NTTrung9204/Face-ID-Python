@@ -45,6 +45,12 @@ def detect_faces(image: np.ndarray, detector_model: YOLO) -> np.ndarray:
 
     return faces
 
+def detect_phone(image: np.ndarray, detector_model: YOLO) -> np.ndarray:
+    results = detector_model(image)
+    phones: np.ndarray = results[0].boxes.xyxy.cpu().numpy()
+
+    return phones
+
 
 def extract_identity_embedding(
     extractor_model: nn.Module, folder_path: str = "identity"
@@ -112,10 +118,17 @@ def predict_real_fake(
     # Now create PIL image from RGB array
     image = Image.fromarray(face_image_rgb)
 
+    # transform = transforms.Compose(
+    #     [
+    #         transforms.Resize(400),  # Resize to a larger size first (zoom in)
+    #         transforms.CenterCrop(299),  # Then crop the center to 299x299
+    #         transforms.ToTensor(),
+    #         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    #     ]
+    # )
     transform = transforms.Compose(
         [
-            transforms.Resize(400),  # Resize to a larger size first (zoom in)
-            transforms.CenterCrop(299),  # Then crop the center to 299x299
+            transforms.Resize(299),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
@@ -134,6 +147,7 @@ def predict_real_fake(
     return predicted_class, probabilities.cpu().numpy()
 def identify_faces(
     faces: np.ndarray,
+    phones: np.ndarray,
     identity_embedding: dict[str, list[np.ndarray]],
     image: np.ndarray,
     extractor_model: nn.Module,
@@ -145,25 +159,25 @@ def identify_faces(
     for face in faces:
         x1, y1, x2, y2 = face
         x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+        
+        # Check if face is inside any phone bounding box
+        is_inside_phone = False
+        for phone in phones:
+            px1, py1, px2, py2 = map(int, phone)
+            if (x1 >= px1 and y1 >= py1 and x2 <= px2 and y2 <= py2):
+                is_inside_phone = True
+                break
 
         face_image = image[y1:y2, x1:x2]
-        
-        # Extract embedding for identification
         face_embedding = extract_face_embedding(face_image, extractor_model)
-        
-        # Find nearest face match
         label, distance = nearest_face(face_embedding, identity_embedding)
         
-        # Convert RGB to BGR for real/fake detection if needed
-        face_image_bgr = cv2.cvtColor(face_image, cv2.COLOR_RGB2BGR)
-        
-        # Check if the face is real or fake
-        real_fake_class, real_fake_probs = predict_real_fake(face_image_bgr, real_fake_model, device)
-
-        if real_fake_class == 1:
+        # If face is inside phone or model predicts fake, mark as fake
+        real_fake_class, real_fake_probs = predict_real_fake(face_image, real_fake_model, device)
+        if is_inside_phone or real_fake_class == 1:
             label = "Fake"
+            real_fake_class = 1
         
-        # Return tuple with additional information about real/fake classification
         identified_faces.append((label, face, distance, real_fake_class, real_fake_probs[0]))
 
     return identified_faces
