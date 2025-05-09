@@ -81,6 +81,8 @@ def nearest_face(
 ) -> tuple[str, float]:
     distances: dict[str, list[float]] = {}
 
+    # print("LEN EMB", len(identity_embedding.items()))
+
     for label, embeddings in identity_embedding.items():
         label: str
         embeddings: list[np.ndarray]
@@ -92,6 +94,8 @@ def nearest_face(
 
             distance: float = cosine_similarity(face_embedding, embedding)
 
+            # print(f"Distance between {label} and face: {distance:.4f}")
+
             distances[label].append(distance)
 
     min_distance: float = np.inf
@@ -101,11 +105,13 @@ def nearest_face(
         label: str
         label_distances: float
 
+        # print(f"Distances for {label}: {label_distances}")
+
         if min(label_distances) < min_distance:
             min_distance: float = min(label_distances)
             min_label: str = label
 
-    print(distances)
+    # print(distances)
 
     return min_label, min_distance
 
@@ -113,10 +119,10 @@ def predict_real_fake(
     face_image: np.ndarray, classifier_model: torch.nn.Module, device: torch.device
 ):
     # Convert BGR to RGB for PIL (if face_image is in BGR)
-    face_image_rgb = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
+    # face_image_rgb = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
     
     # Now create PIL image from RGB array
-    image = Image.fromarray(face_image_rgb)
+    image = Image.fromarray(face_image)
 
     # transform = transforms.Compose(
     #     [
@@ -169,6 +175,7 @@ def identify_faces(
                 break
 
         face_image = image[y1:y2, x1:x2]
+        face_image = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
         face_embedding = extract_face_embedding(face_image, extractor_model)
         label, distance = nearest_face(face_embedding, identity_embedding)
         

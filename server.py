@@ -4,7 +4,7 @@ import cv2
 from flask import Flask, jsonify, request, send_file, send_from_directory
 from flask_cors import CORS, cross_origin
 from face_id_model import FaceIDModel
-from utils.model_utils import extract_face_embedding
+from utils.model_utils import detect_faces, extract_face_embedding
 from utils.server_utils import ServerUtils
 from PIL import Image
 import numpy as np
@@ -19,7 +19,7 @@ app = Flask(__name__)
 # CORS(app, resources={r"/api/*": {"origins": "http://localhost:5173"}})
 # CORS(app)
 CORS(app, resources={r"/api/*": {
-    "origins": "http://192.168.180.164:5173",  # Thay đổi theo origin của React app
+    "origins": "http://localhost:5173",  # Thay đổi theo origin của React app
     "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     "allow_headers": ["Content-Type", "Authorization"],
     "supports_credentials": True
@@ -139,24 +139,67 @@ def identity_student():
         img = Image.open(image)
         img_array = np.array(img)
 
-
         # convert to BGR format
         img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
 
         print("Image shape:", img_array.shape)
+        # cv2.imshow("Image", img_array)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+
+        # print("Image shape:", img_array.shape)
 
         student_vectors = ServerUtils.fetch_student_vectors()
+        # print("Student vectors:", len(student_vectors.items()))
+        # print("Student vectors:", student_vectors.keys())
         # print("Student vectors:", student_vectors)
-        label, distance = ServerUtils.identify_student(
-            student_vectors, img_array, my_model.extractor_model
-        )
+        # label, distance = ServerUtils.identify_student(
+        #     student_vectors, img_array, my_model.extractor_model
+        # )
+        
+        my_model.set_identity_embedding(student_vectors)
+        # label, distance = my_model.query(img_array)[0][0], my_model.query(img_array)[0][2]
+        identified_faces = my_model.query(img_array)
+
+        label = None
+        distance = 1.0  # Initialize with a high value
+        d = 1.0  # Initialize with a high value
+
+        if not identified_faces:
+            return {"message": "No face detected in image", "status": "error"}
+
+        for label, face, dist, _, _ in identified_faces:
+            x1, y1, x2, y2 = map(int, face)
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+
+            print("t Label:", label)
+            print("t Distance:", dist)
+
+            if dist < d:
+                d = dist
+                label = label
+                distance = dist  # Update the final distance value
 
         print("Label:", label)
         print("Distance:", distance)
 
-        if distance > 0.3:
+        if label == "Fake":
+            notification = {
+                "student_id": -1,
+                "lesson_id": 1,
+                "name": "Fake",
+                "message": f"Warning Fake"
+            }
+
+            print(notification)
+            send_to_esp32(notification)
+            return {"label": "Fake", "distance": distance, "status": "error"}
+
+        if distance > 0.25:
             return {"label": "unknown", "distance": distance, "status": "success"}
         
+        
+
         # save image to file
         current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         image_name = f"image_{current_time}.jpg"
@@ -166,6 +209,8 @@ def identity_student():
 
         studentId = label
 
+
+        
         student = ServerUtils.get_student_by_id(student_id=studentId)
         if not student:
             print("Student not found")
@@ -173,34 +218,23 @@ def identity_student():
         
         label = student["name"]
 
-        # label = str(label)
-
-        # if label == "1":
-        #     label = "trung"
-        # elif label == "2":
-        #     label = "tai"
-        # elif label == "3":
-        #     label = "hoang"
-        # elif label == "4":
-        #     label = "phong"
-
-        # global results
-        # results = label
-
         print("Student ID:", studentId)
         print("Label:", label)
 
         # Get current lesson for this student
         lessonId = ServerUtils.get_current_lesson_for_student(studentId)
         
+        print("Lesson ID:", lessonId)
+
         if not lessonId:
             return {"message": "Student not found in any active lessons", "status": "error"}
         
         # post data to localhost:8080/api/attendance/check
         try:
             response = requests.post(
-                "http://192.168.180.164:8080/api/attendance/check",
+                "https://localhost:8080/api/attendance/check",
                 json={"lessonId": lessonId, "studentId": studentId, "image": image_name},
+                verify=False
             )
         except requests.exceptions.RequestException as e:
             print("Error sending request to attendance API:", e)
@@ -219,6 +253,8 @@ def identity_student():
             "name": label,
             "message": f"Attendance recorded for student {label}"
         }
+
+        print(notification)
         send_to_esp32(notification)
 
         return {"label": label, "distance": distance, "lessonId": lessonId, "status": "success"}
@@ -260,16 +296,39 @@ def register_face():
         image = Image.open(io.BytesIO(base64.b64decode(image.split(',')[1])))
         image_array = np.array(image)
 
-        # print(extract_face_embedding(image_array, my_model.extractor_model))
-        array_vector.append(extract_face_embedding(image_array, my_model.extractor_model).tolist())
+        image_array = cv2.cvtColor(image_array, cv2.COLOR_RGB2BGR)
+
+        # show image
+        # cv2.imshow("Image", image_array)
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+
+        faces = detect_faces(image_array, my_model.detector_model)
+
+        for face in faces:
+            x1, y1, x2, y2 = map(int, face)
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            img = image_array[y1:y2, x1:x2]
+
+            # cv2.imshow("Face", img)
+            # cv2.waitKey(0)
+            # cv2.destroyAllWindows()
+
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+            array_vector.append(extract_face_embedding(img, my_model.extractor_model).tolist())
 
     response = requests.post(
-        "http://192.168.180.164:8080/api/student-vectors",
+        "https://localhost:8080/api/student-vectors",
         json={
             "username": username,
             "featureVector": array_vector,
-        }
+        },
+        verify=False
     )
+    print("Kết quả từ API student-vectors:")
+    print(response)
+    # print("Response from student-vectors API:", response.json())
     print("Status Code:", response.status_code)
 
 

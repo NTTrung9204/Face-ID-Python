@@ -8,8 +8,8 @@ import torch
 
 class FaceIDModel:
     def __init__(self, detector_path: str, identity_folder: str = "identity") -> None:
-        self.detector_model: YOLO = YOLO(detector_path, verbose=True)
-        self.phone_detector_model: YOLO = YOLO("model/phone.pt", verbose=True)
+        self.detector_model: YOLO = YOLO(detector_path, verbose=False)
+        self.phone_detector_model: YOLO = YOLO("model/phone.pt", verbose=False)
         self.extractor_model: nn.Module = InceptionResnetV1(
             pretrained="vggface2"
         ).eval()
@@ -29,3 +29,6 @@ class FaceIDModel:
         )
 
         return identified_faces
+    
+    def set_identity_embedding(self, identity_embedding: dict[str, list[np.ndarray]]) -> None:
+        self.identity_embedding = identity_embedding
